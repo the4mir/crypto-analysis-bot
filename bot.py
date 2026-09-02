@@ -1,6 +1,7 @@
 import os
 import requests
 import pandas as pd
+import sqlite3
 import pandas_ta as ta
 RTL_MARK = "\u200f"
 SUPPORTED_COINS = {
@@ -15,19 +16,21 @@ AI_MODELS_FALLBACK = [
     "meta-llama/llama-3.3-70b-instruct:free",
     "openrouter/free",
 ]
-
+from database import init_db, add_user_if_not_exists, get_favorite_coins, set_favorite_coins
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, filters
-
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    add_user_if_not_exists(chat_id)
     await update.message.reply_text(
         "سلام! من بات تحلیل کریپتو هستم. 🤖\nهنوز در حال ساخته شدنم، ولی به زودی کامل می‌شم!"
     )
@@ -168,6 +171,66 @@ async def analysis(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(message)
 
+async def my_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    coins = get_favorite_coins(chat_id)
+    await update.message.reply_text(f"کوین‌های موردعلاقه‌ی فعلی تو: {', '.join(coins)}")
+
+async def send_daily_report(app):
+    conn = sqlite3.connect("bot_data.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT chat_id, favorite_coins FROM users")
+    all_users = cursor.fetchall()
+    conn.close()
+
+    for chat_id, favorite_coins_str in all_users:
+        coins = favorite_coins_str.split(",")
+        report_lines = ["📅 گزارش روزانه‌ی بازار\n"]
+
+        for symbol in coins:
+            if symbol not in SUPPORTED_COINS:
+                continue
+            coin_id = SUPPORTED_COINS[symbol]
+            data = get_coin_analysis(coin_id)
+            if data is None:
+                continue
+
+            rsi_note = "اشباع خرید" if data["rsi"] > 70 else "اشباع فروش" if data["rsi"] < 30 else "عادی"
+            report_lines.append(
+                f"{symbol.upper()}: ${data['price']:,.2f} | RSI: {data['rsi']:.1f} ({rsi_note})"
+            )
+
+        report_lines.append("\n⚠️ این گزارش توصیه‌ی مالی نیست.")
+        report_text = "\n".join(report_lines)
+
+        try:
+            await app.bot.send_message(chat_id=chat_id, text=report_text)
+        except Exception as e:
+            print(f"Failed to send report to {chat_id}: {e}")
+
+async def set_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
+    if not context.args:
+        await update.message.reply_text(
+            "لطفاً کوین‌های موردعلاقه‌تو با فاصله بنویس، مثلاً:\n/setcoins btc eth sol"
+        )
+        return
+
+    requested_coins = [c.lower() for c in context.args]
+    invalid_coins = [c for c in requested_coins if c not in SUPPORTED_COINS]
+
+    if invalid_coins:
+        await update.message.reply_text(
+            f"این ارزها رو نمی‌شناسم: {', '.join(invalid_coins)}\n"
+            f"ارزهای پشتیبانی‌شده: {', '.join(SUPPORTED_COINS.keys())}"
+        )
+        return
+
+    set_favorite_coins(chat_id, requested_coins)
+    await update.message.reply_text(
+        f"✅ کوین‌های موردعلاقه‌ت ذخیره شد: {', '.join(requested_coins)}"
+    )
 def call_ai_model(full_prompt):
     system_prompt = (
         "تو یک دستیار تحلیل بازار کریپتو هستی که در تلگرام چت می‌کنه. "
@@ -242,20 +305,30 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
    
+async def post_init(app):
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(send_daily_report, "cron", hour=9, minute=0, args=[app])
+    scheduler.start()
+
+
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    init_db()
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("price", price))
     app.add_handler(CommandHandler("analysis", analysis))
+    app.add_handler(CommandHandler("setcoins", set_coins))
+    app.add_handler(CommandHandler("mycoins", my_coins))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_with_ai))
 
     print("Welcome back, boss! The bot is online and ready to roll.")
-
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
+
+
 
 
     
