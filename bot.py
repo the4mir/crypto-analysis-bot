@@ -310,7 +310,7 @@ async def post_init(app):
     scheduler.add_job(send_daily_report, "cron", hour=9, minute=0, args=[app])
     scheduler.start()
 
-
+ 
 def main():
     init_db()
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
