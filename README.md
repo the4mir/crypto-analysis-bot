@@ -2,15 +2,14 @@
 
 A Telegram bot that provides real-time cryptocurrency market analysis, combining technical indicators with AI-powered insights.
 
-## Features
+## 🛠️ Tech Stack
 
-- 📊 **Real-time price data** for multiple cryptocurrencies (BTC, ETH, SOL, BNB, DOGE) via CoinGecko API
-- 📈 **Technical analysis** — RSI and moving averages (SMA 7/25) computed with `pandas-ta`
-- 🤖 **AI-powered chat** — ask questions about market conditions in natural language; the bot grounds its answers in live market data
-- 🔄 **Multi-model AI fallback** — automatically switches between AI models if one is unavailable, ensuring reliability
-- 💾 **Persistent user preferences** — SQLite database stores each user's favorite coins
-- ⏰ **Scheduled daily reports** — automatic market summaries sent to users on a schedule
-- 🔒 **Secure credential management** — API keys stored via environment variables, never hardcoded
+- 🐍 Python
+- 🤖 Telegram Bot API
+- 📊 pandas-ta
+- 🪙 CoinGecko API
+- 🧠 AI Models
+- 🗄️ SQLite
 
 ## Tech Stack
 
