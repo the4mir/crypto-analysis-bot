@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 import sqlite3
 import pandas_ta as ta
+
 RTL_MARK = "\u200f"
 SUPPORTED_COINS = {
     "btc": "bitcoin",
@@ -23,7 +24,8 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import MessageHandler, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CallbackQueryHandler
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 AI_API_KEY = os.getenv("AI_API_KEY")
@@ -31,8 +33,22 @@ AI_API_KEY = os.getenv("AI_API_KEY")
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     add_user_if_not_exists(chat_id)
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 تحلیل BTC", callback_data="analysis_btc"),
+            InlineKeyboardButton("📊 تحلیل ETH", callback_data="analysis_eth"),
+        ],
+        [
+            InlineKeyboardButton("📊 تحلیل SOL", callback_data="analysis_sol"),
+            InlineKeyboardButton("💰 قیمت BTC", callback_data="price_btc"),
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
-        "سلام! من بات تحلیل کریپتو هستم. 🤖\nهنوز در حال ساخته شدنم، ولی به زودی کامل می‌شم!"
+        "سلام! من بات تحلیل کریپتو هستم. 🤖\nیکی از گزینه‌ها رو انتخاب کن، یا هر سوالی داری بپرس:",
+        reply_markup=reply_markup,
     )
 
 
@@ -175,6 +191,58 @@ async def my_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     coins = get_favorite_coins(chat_id)
     await update.message.reply_text(f"کوین‌های موردعلاقه‌ی فعلی تو: {', '.join(coins)}")
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    action, symbol = query.data.split("_")
+
+    if action == "price" and symbol == "btc":
+        btc_price = get_btc_price()
+        if btc_price:
+            await query.message.reply_text(f"قیمت لحظه‌ای بیت‌کوین: ${btc_price:,}")
+        else:
+            await query.message.reply_text("متأسفم، الان نتونستم قیمت رو بگیرم.")
+        return
+
+    if action == "analysis":
+        if symbol not in SUPPORTED_COINS:
+            await query.message.reply_text("این ارز پشتیبانی نمی‌شه.")
+            return
+
+        coin_id = SUPPORTED_COINS[symbol]
+        data = get_coin_analysis(coin_id)
+
+        if data is None:
+            await query.message.reply_text("متأسفم، الان نتونستم داده‌ها رو بگیرم.")
+            return
+
+        price = data["price"]
+        rsi = data["rsi"]
+        sma_7 = data["sma_7"]
+        sma_25 = data["sma_25"]
+
+        if rsi > 70:
+            rsi_note = "نسبتاً بالا (احتمال اشباع خرید)"
+        elif rsi < 30:
+            rsi_note = "نسبتاً پایین (احتمال اشباع فروش)"
+        else:
+            rsi_note = "در محدوده‌ی عادی"
+
+        trend_note = "روند کوتاه‌مدت صعودی به نظر می‌رسه" if sma_7 > sma_25 else "روند کوتاه‌مدت نزولی به نظر می‌رسه"
+
+        message = (
+            f"📊 تحلیل {symbol.upper()}\n\n"
+            f"قیمت فعلی: ${price:,.2f}\n"
+            f"RSI (۱۴ روزه): {rsi:.1f} — {rsi_note}\n"
+            f"میانگین ۷ روزه: ${sma_7:,.2f}\n"
+            f"میانگین ۲۵ روزه: ${sma_25:,.2f}\n"
+            f"→ {trend_note}\n\n"
+            f"⚠️ این تحلیل صرفاً بر اساس داده‌های آماری گذشته‌ست و توصیه‌ی مالی محسوب نمی‌شه."
+        )
+
+        await query.message.reply_text(message)
 
 async def send_daily_report(app):
     conn = sqlite3.connect("bot_data.db")
@@ -319,6 +387,7 @@ def main():
     app.add_handler(CommandHandler("analysis", analysis))
     app.add_handler(CommandHandler("setcoins", set_coins))
     app.add_handler(CommandHandler("mycoins", my_coins))
+    app.add_handler(CallbackQueryHandler(button_handler))        
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_with_ai))
 
     print("Welcome back, boss! The bot is online and ready to roll.")
