@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 import sqlite3
 import pandas_ta as ta
+import pytz
 
 RTL_MARK = "\u200f"
 SUPPORTED_COINS = {
@@ -374,8 +375,9 @@ async def chat_with_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
    
 async def post_init(app):
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(send_daily_report, "cron", hour=9, minute=0, args=[app])
+    tehran_tz = pytz.timezone("Asia/Tehran")
+    scheduler = AsyncIOScheduler(timezone=tehran_tz)
+    scheduler.add_job(send_daily_report, "cron", hour=8, minute=0, args=[app])
     scheduler.start()
 
  
